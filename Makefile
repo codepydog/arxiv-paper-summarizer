@@ -17,5 +17,5 @@ format:
 lint:
 	poetry run isort --check-only src
 	poetry run black --check src
-	poetry run flake8 src --max-line-length=120
+	poetry run flake8 src --max-line-length=150
 	poetry run mypy src --ignore-missing-imports --check-untyped-defs 

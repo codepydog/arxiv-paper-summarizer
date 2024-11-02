@@ -41,7 +41,7 @@ build-backend = "poetry.core.masonry.api"
 
 
 [tool.black]
-line-length = 120
+line-length = 150
 quiet = true
 
 
@@ -52,7 +52,7 @@ check_untyped_defs = true
 
 
 [tool.flake8]
-max-line-length = 120
+max-line-length = 150
 indent-size = 4
 ignore = ["E501", "E704"]
 
