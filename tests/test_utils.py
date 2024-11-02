@@ -11,3 +11,6 @@ def test_get_env_var(monkeypatch: pytest.MonkeyPatch):
     assert get_env_var("HOME") == "/home/runner"
     assert get_env_var("USER") == "runner"
     assert get_env_var("SHELL") == "/bin/bash"
+
+    with pytest.raises(ValueError):
+        get_env_var("NOT_EXISTING")
