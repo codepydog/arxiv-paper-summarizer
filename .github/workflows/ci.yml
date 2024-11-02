@@ -1,0 +1,30 @@
+name: Unit tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - "*"
+
+jobs:
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        name: Install Python
+        with:
+          python-version: 3.12
+      - name: Install Poetry
+        uses: snok/install-poetry@v1.3
+        with:
+          version: 1.8.0
+      - name: Install dependencies
+        run: make install
+      - name: Check lint
+        run: make lint
+      - name: Run test
+        run: make test
