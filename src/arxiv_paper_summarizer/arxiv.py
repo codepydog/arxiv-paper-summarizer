@@ -13,23 +13,9 @@ from arxiv import Client as _ArxivClient
 from arxiv import Result as ArxivResult
 from arxiv import Search as ArxivSearch
 from more_itertools import flatten, unique_everseen
-from pydantic import AnyHttpUrl, BaseModel
 
 from arxiv_paper_summarizer.error import InvalidArxivURLException
-
-
-class Paper(BaseModel):
-    title: str
-    text: str
-    url: AnyHttpUrl
-    references: list[Paper] | None = None
-
-    def flatten(self) -> list[Paper]:
-        papers = [self]
-        if self.references:
-            for paper in self.references:
-                papers.extend(paper.flatten())
-        return papers
+from arxiv_paper_summarizer.types import Paper
 
 
 class ArxivClient:
