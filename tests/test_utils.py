@@ -1,6 +1,6 @@
 import pytest
 
-from arxiv_paepr_summarizer.utils import get_env_var
+from arxiv_paper_summarizer.utils import get_env_var
 
 
 def test_get_env_var(monkeypatch: pytest.MonkeyPatch):
