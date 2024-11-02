@@ -62,6 +62,11 @@ class ArxivClient:
         raise InvalidArxivURLException(f"Invalid Arxiv URL: {url}. Expected url should contain Arxiv ID.")
 
     @staticmethod
+    def extract_id(url: str) -> str | None:
+        match = re.search(r"(\d{4}\.\d{4,5})(v\d+)?", url)
+        return match.group(1) if match else None
+
+    @staticmethod
     def parse_references(text: str) -> list[str]:
         arxiv_urls = re.findall(r"(https?://arxiv\.org/abs/\d{4}\.\d{4,5}(v\d+)?)", text)
         return [match[0] for match in arxiv_urls]
@@ -153,6 +158,9 @@ arxiv_client = ArxivClient()
 
 
 def fetch_papers_by_url(urls: str | Iterable[str], parse_reference: bool = False) -> list[Paper]:
+    if isinstance(urls, str):
+        urls = [urls]
+
     urls = list(flatten([urls]))
 
     if parse_reference:
@@ -162,6 +170,9 @@ def fetch_papers_by_url(urls: str | Iterable[str], parse_reference: bool = False
 
 
 def fetch_papers_by_query(queries: str | Iterable[str], parse_reference: bool = False) -> list[Paper]:
+    if isinstance(queries, str):
+        queries = [queries]
+
     queries = list(flatten([queries]))
 
     if parse_reference:
@@ -171,11 +182,17 @@ def fetch_papers_by_query(queries: str | Iterable[str], parse_reference: bool = 
 
 
 def load_papers_by_url(urls: str | Iterable[str], save_dir: str = "./") -> None:
+    if isinstance(urls, str):
+        urls = [urls]
+
     urls = list(flatten([urls]))
     arxiv_client.download_papers_by_url(urls, save_dir)
 
 
 def load_papers_by_query(queries: str | Iterable[str], save_dir: str = "./") -> None:
+    if isinstance(queries, str):
+        queries = [queries]
+
     queries = list(flatten([queries]))
     arxiv_client.download_papers_by_query(queries, save_dir)
 
