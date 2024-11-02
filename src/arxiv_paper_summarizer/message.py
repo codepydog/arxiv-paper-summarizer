@@ -36,11 +36,7 @@ class Message(Generic[R]):
 
     def format(self, *args: P.args, **kwargs: P.kwargs) -> MessageDict:
         formatter = string.Formatter()
-        field_names = {
-            field_name
-            for _, field_name, _, _ in formatter.parse(self.content)
-            if field_name is not None and field_name != ""
-        }
+        field_names = {field_name for _, field_name, _, _ in formatter.parse(self.content) if field_name is not None and field_name != ""}
         relevant_kwargs = {key: kwargs[key] for key in field_names if key in kwargs}
         missing_fields = field_names - relevant_kwargs.keys()
         if missing_fields:

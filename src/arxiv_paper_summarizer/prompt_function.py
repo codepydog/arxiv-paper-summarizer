@@ -54,9 +54,7 @@ class PromptFunction(Protocol[P, R]):
 class PromptDecorator(Protocol):
 
     @overload
-    def __call__(  # type: ignore[overload-overlap]
-        self, func: Callable[P, Awaitable[R]]
-    ) -> AsyncPromptFunction[P, R]: ...
+    def __call__(self, func: Callable[P, Awaitable[R]]) -> AsyncPromptFunction[P, R]: ...  # type: ignore[overload-overlap]
 
     @overload
     def __call__(self, func: Callable[P, R]) -> PromptFunction[P, R]: ...
@@ -121,12 +119,7 @@ class BaseOpenAIPromptFunction(Generic[P, R]):
         if isinstance(message, str):
             return UserMessage(message)
 
-        if (
-            isinstance(message, tuple)
-            and len(message) == 2
-            and isinstance(message[0], str)
-            and isinstance(message[1], str)
-        ):
+        if isinstance(message, tuple) and len(message) == 2 and isinstance(message[0], str) and isinstance(message[1], str):
             role, text = message[0].lower(), message[1]
             role_map = {"user": UserMessage, "system": SystemMessage, "ai": AIMessage}
             if role_cls := role_map.get(role):
