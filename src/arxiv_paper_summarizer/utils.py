@@ -5,6 +5,7 @@ import json
 import os
 import re
 import types
+from pathlib import Path
 from typing import Any, ParamSpec, Sequence, TypeVar, Union, get_args, get_origin
 
 import tiktoken
@@ -82,3 +83,17 @@ def extract_json_content(text: str) -> list[dict[str, str]] | None | Any:
         return json.loads(cleaned_json_text)
     except json.JSONDecodeError:
         return None
+
+
+def normalize_image_filename(filename: str) -> str:
+    """
+    Normalize image filenames by removing unnecessary parts.
+    """
+    path = Path(filename)
+    stem, suffix = path.stem, path.suffix
+
+    if stem.startswith(("figure", "table")) and stem.count("-") > 1:
+        parts = stem.split("-")
+        return f"{parts[0]}-{parts[-1]}{suffix}"
+
+    return filename

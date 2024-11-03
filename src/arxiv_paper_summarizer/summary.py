@@ -1,10 +1,12 @@
 """AI Summarizer for arXiv papers."""
 
+import json
 import tempfile
 import warnings
 from pathlib import Path
 
 from pydantic import TypeAdapter
+from tenacity import retry, retry_if_exception_type, stop_after_attempt
 from unstructured.documents.elements import Element
 from unstructured.partition.pdf import partition_pdf
 
@@ -19,7 +21,12 @@ from arxiv_paper_summarizer.types import (
     SectionNote,
     SummaryResult,
 )
-from arxiv_paper_summarizer.utils import encode_image, extract_json_content, get_env_var
+from arxiv_paper_summarizer.utils import (
+    encode_image,
+    extract_json_content,
+    get_env_var,
+    normalize_image_filename,
+)
 
 try:
     from langfuse.openai import OpenAI
@@ -41,10 +48,9 @@ class ArxivPaperSummarizer:
 
         self._paper: Paper | None = None
         self._elements: list[Element] | None = None
-        self._image_path_list: list[ImagePath] = []
 
-        self._section_notes: list[SectionNote] = []
-        self._translated_section_notes: list[SectionNote] = []
+        self._img_path_map: dict[str, str] = {}
+        self._image_path_list: list[ImagePath] = []
         self._image_output_dir = tempfile.mkdtemp()
 
         self._post_init()
@@ -63,6 +69,7 @@ class ArxivPaperSummarizer:
         return SummaryResult(keynote=keynote, section_notes=section_notes)
 
     def extract_keynote(self) -> str:
+        """Extract the keynote of the paper."""
         try:
             return self._extract_keynote(self.paper.text)  # type: ignore
         except Exception as e:
@@ -70,6 +77,7 @@ class ArxivPaperSummarizer:
             return ""
 
     def extract_section_note_list(self, section_info_list: list[SectionInfo]) -> list[SectionNote]:
+        """Extract the section notes of the paper."""
         try:
             section_note_list = [self._write_section_note(section) for section in section_info_list]
             return TypeAdapter(list[SectionNote]).validate_python(section_note_list)
@@ -87,7 +95,8 @@ class ArxivPaperSummarizer:
             header=section.title,
             summary_content=structured_section_summary,
             quotes=quotes,
-            image_path=section.image_paths,
+            image_paths=section.image_paths,
+            table_paths=section.table_paths,
         )
 
     @property
@@ -160,13 +169,18 @@ class ArxivPaperSummarizer:
             element_dict = element.to_dict()
             if element_dict["type"] == "Image" or element_dict["type"] == "Table":
                 img_path = element_dict["metadata"]["image_path"]
-                filename = Path(img_path).stem
-                image_path_list.append(ImagePath(path=str(img_path), filename=str(filename)))
+                filename = str(Path(img_path).stem)
+                image_path_list.append(ImagePath(path=str(img_path), filename=filename))
         return image_path_list
 
     def get_image_filename_set(self) -> set[str]:
         """Get the set of image paths."""
-        return set([image_path.filename for image_path in self.image_path_list])
+        filename_list: list[str] = []
+        for image_path in self.image_path_list:
+            norm_filename = normalize_image_filename(image_path.filename)
+            self._img_path_map[norm_filename] = image_path.filename  # Need this map to get the original filename
+            filename_list.append(norm_filename)
+        return set(filename_list)
 
     def get_section_info_list(self, section_list: list[ExtractedSectionResult]) -> list[SectionInfo]:
         """Get the section info of the paper."""
@@ -175,23 +189,45 @@ class ArxivPaperSummarizer:
             if section.content == "":
                 continue
 
+            image_paths = []
+            table_paths = []
             image_encoding_str_list = []
             for filename in section.ref_fig + section.ref_tb:
                 if filename not in self.get_image_filename_set():
                     continue
-                image_path = Path(self._image_output_dir) / f"{filename}.jpg"
-                image_encoding_str_list.append(encode_image(str(image_path)))
+
+                image_path = str(Path(self._image_output_dir) / f"{self.get_image_filename(filename)}.jpg")
+                if filename.startswith("figure"):
+                    image_paths.append(image_path)
+                elif filename.startswith("table"):
+                    table_paths.append(image_path)
+
+                img_enc = encode_image(image_path)
+                image_encoding_str_list.append(img_enc)
 
             result.append(
                 SectionInfo(
                     title=section.section,
                     content=section.content,
                     image_encoding_str_list=image_encoding_str_list,
-                    image_paths=[image_path.path for image_path in self.image_path_list],
+                    image_paths=image_paths,
+                    table_paths=table_paths,
                 )
             )
         return TypeAdapter(list[SectionInfo]).validate_python(result)
 
+    def get_image_filename(self, norm_filename: str) -> str:
+        """Get the original image filename."""
+        try:
+            return self._img_path_map[norm_filename]
+        except KeyError as e:
+            warnings.warn(f"No image found for filename '{norm_filename}': {e}")
+            return ""
+
+    @retry(
+        stop=stop_after_attempt(3),
+        retry=(retry_if_exception_type(json.JSONDecodeError) | retry_if_exception_type(ValueError)),
+    )
     def extract_section_list(self, text: str) -> list[ExtractedSectionResult]:
         """Extract the sections from the content of paper."""
         json_str = self._extract_paper_sections(text)  # type: ignore
@@ -207,11 +243,12 @@ class ArxivPaperSummarizer:
             "- `section`: The name of the section, capturing the main topic or heading of the section.\n"
             "- `content`: The full content of the section, presented exactly as in the paper without reduction or summarization.\n"
             "- `ref_fig`: A list of figure references in this section. "
-            "Each reference must follow the format 'figure-<page>-<number>' (e.g., 'figure-20-7' for the seventh figure on page 20).\n"
+            "Each reference must follow the format 'figure-<number>' (e.g., 'figure-1' for the first figure).\n"
             "- `ref_tb`: A list of table references in this section. "
-            "Each reference must follow the format 'table-<page>-<number>' (e.g., 'table-15-3' for the third table on page 15).\n\n"
+            "Each reference must follow the format 'table-<number>' (e.g., 'table-3' for the third table).\n\n"
             "Ensure that each section is represented as a structured JSON object, without reducing or summarizing the content. "
-            "Do not include the references section.\n",
+            "Do not include the references section.\n"
+            "Do not duplicate the ref_fig and ref_tb to each section. Include them only once.",
         ),
         (
             "user",

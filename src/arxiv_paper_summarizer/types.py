@@ -36,22 +36,28 @@ class Paper(BaseModel):
 class ExtractedSectionResult(BaseModel):
     section: str = Field(..., description="Section title or heading.")
     content: str = Field(..., description="Full section text without summarization.")
-    ref_fig: list[str] = Field(..., description="List of figure references in 'Figure-<number>-<page>' format.")
-    ref_tb: list[str] = Field(..., description="List of table references in 'Table-<number>-<page>' format.")
+    ref_fig: list[str] = Field(..., description="List of figure references in 'Figure-<page>' format.")
+    ref_tb: list[str] = Field(..., description="List of table references in 'Table-<page>' format.")
 
 
 class SectionInfo(BaseModel):
     title: str
     content: str
-    image_encoding_str_list: list[str] = Field(default_factory=list, description="List of image paths.")
+    image_encoding_str_list: list[str] = Field(
+        default_factory=list,
+        description="List of image paths.",
+        repr=False,
+    )
     image_paths: list[str] = Field(default_factory=list, description="List of image paths.")
+    table_paths: list[str] = Field(default_factory=list, description="List of table paths.")
 
 
 class SectionNote(BaseModel):
     header: str
     summary_content: str
     quotes: str
-    image_path: list[str] = Field(default_factory=list, description="List of image paths.")
+    image_paths: list[str] = Field(default_factory=list, description="List of image paths.")
+    table_paths: list[str] = Field(default_factory=list, description="List of table paths.")
 
 
 class ImagePath(BaseModel):
