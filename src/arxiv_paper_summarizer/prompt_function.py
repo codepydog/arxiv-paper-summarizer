@@ -71,6 +71,7 @@ class BaseOpenAIPromptFunction(Generic[P, R]):
         llm: LLM_Type | None,
         model_name: OpenAIModel | None = None,
         response_format: Any | None = None,
+        temperature: float | None = None,
     ) -> None:
         self._name = name
         self._llm = llm
@@ -82,6 +83,7 @@ class BaseOpenAIPromptFunction(Generic[P, R]):
         self._model_name = model_name
         self._return_types = split_union_type(return_type)
         self._response_format = response_format
+        self._temperature = temperature or 0.5
 
     @property
     def return_types(self) -> Sequence[type[R]]:
@@ -98,6 +100,10 @@ class BaseOpenAIPromptFunction(Generic[P, R]):
     @property
     def response_format(self) -> Any | None:
         return self._response_format
+
+    @property
+    def temperature(self) -> float:
+        return self._temperature
 
     def get_model_name(self) -> str:
         return "gpt-4o"
@@ -161,6 +167,7 @@ class AsyncOpenAIPromptFunction(BaseOpenAIPromptFunction[P, R], Generic[P, R], A
                     model=self.model_name,
                     messages=messages,
                     response_format=self.response_format,
+                    temperature=self.temperature,
                 ),
             )  # type: ignore[misc]
             message = chat_completion.choices[0].message
@@ -193,6 +200,7 @@ class OpenAIPromptFunction(BaseOpenAIPromptFunction[P, R], Generic[P, R], Prompt
                     model=self.model_name,
                     messages=messages,
                     response_format=self.response_format,
+                    temperature=self.temperature,
                 ),
             )
             message = chat_completion.choices[0].message
@@ -222,6 +230,7 @@ def openai_prompt(
     llm: LLM_Type | None = None,
     model_name: OpenAIModel | None = None,
     response_format: Any | None = None,
+    temperature: float | None = None,
 ) -> PromptDecorator:
     def decorator(
         func: Callable[P, Awaitable[R]] | Callable[P, R],
@@ -236,6 +245,7 @@ def openai_prompt(
                 llm=llm,
                 model_name=model_name,
                 response_format=response_format,
+                temperature=temperature,
             )
             return cast(AsyncOpenAIPromptFunction[P, R], update_wrapper(async_prompt_func, func))
 
@@ -247,6 +257,7 @@ def openai_prompt(
             llm=llm,
             model_name=model_name,
             response_format=response_format,
+            temperature=temperature,
         )
         return cast(OpenAIPromptFunction[P, R], update_wrapper(prompt_func, func))
 
