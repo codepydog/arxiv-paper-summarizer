@@ -97,3 +97,7 @@ def normalize_image_filename(filename: str) -> str:
         return f"{parts[0]}-{parts[-1]}{suffix}"
 
     return filename
+
+
+def is_first_figure(path: str) -> bool:
+    return bool(re.match(r"^figure-\d+-1$", Path(path).stem))

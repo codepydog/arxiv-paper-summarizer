@@ -25,6 +25,7 @@ from arxiv_paper_summarizer.utils import (
     encode_image,
     extract_json_content,
     get_env_var,
+    is_first_figure,
     normalize_image_filename,
 )
 
@@ -41,10 +42,14 @@ class ArxivPaperSummarizer:
         self,
         arxiv_url: str,
         llm: LLM_TYPE | None = None,
+        extract_section_notes: bool = False,
+        verbose: bool = False,  # TODO: Implement verbose mode
     ) -> None:
         """Initialize the summarizer."""
         self._arxiv_url = arxiv_url
         self._llm = llm
+        self._extract_section_notes = extract_section_notes
+        self._verbose = verbose
 
         self._paper: Paper | None = None
         self._elements: list[Element] | None = None
@@ -65,7 +70,12 @@ class ArxivPaperSummarizer:
         section_list = self.extract_section_list(self.paper.text)
         section_info_list = self.get_section_info_list(section_list)
         keynote = self.extract_keynote()
-        section_notes = self.extract_section_note_list(section_info_list)
+
+        if self._extract_section_notes:
+            section_notes = self.extract_section_note_list(section_info_list)
+        else:
+            section_notes = []
+
         return SummaryResult(keynote=keynote, section_notes=section_notes)
 
     def extract_keynote(self) -> str:
@@ -224,6 +234,13 @@ class ArxivPaperSummarizer:
             warnings.warn(f"No image found for filename '{norm_filename}': {e}")
             return ""
 
+    def get_cover_image_path(self) -> str | None:
+        """Get the default cover image path."""
+        for img_path in self.image_path_list:
+            if is_first_figure(img_path.path):
+                return img_path.path
+        return None
+
     @retry(
         stop=stop_after_attempt(3),
         retry=(retry_if_exception_type(json.JSONDecodeError) | retry_if_exception_type(ValueError)),
@@ -283,9 +300,7 @@ class ArxivPaperSummarizer:
             "- Add quotes describing any proposed methods or solutions, along with theoretical foundations or significant insights.\n"
             "- Provide quotes on any major findings or important points emphasized by the author.\n"
             "## Response Format\n"
-            "For each quote, include an explanation of its importance in this format:\n\n"
             "> 'Quote text here'\n\n"
-            "**Explanation**: why this quote is important\n\n"
             "## Requirements\n"
             "- Limit to three critical quotes only.\n"
             "- Quotes should be very critical or insightful or innovative.\n"
