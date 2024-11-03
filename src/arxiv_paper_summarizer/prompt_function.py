@@ -127,7 +127,11 @@ class BaseOpenAIPromptFunction(Generic[P, R]):
 
         if isinstance(message, tuple) and len(message) == 2 and isinstance(message[0], str) and isinstance(message[1], str):
             role, text = message[0].lower(), message[1]
-            role_map = {"user": UserMessage, "system": SystemMessage, "ai": AIMessage}
+            role_map = {
+                "user": UserMessage,
+                "system": SystemMessage,
+                "ai": AIMessage,
+            }
             if role_cls := role_map.get(role):
                 return role_cls(text)
             raise ValueError(f"Invalid role: '{role}' in message: {message}")
@@ -247,7 +251,10 @@ def openai_prompt(
                 response_format=response_format,
                 temperature=temperature,
             )
-            return cast(AsyncOpenAIPromptFunction[P, R], update_wrapper(async_prompt_func, func))
+            return cast(
+                AsyncOpenAIPromptFunction[P, R],
+                update_wrapper(async_prompt_func, func),
+            )
 
         prompt_func = OpenAIPromptFunction[P, R](
             name=func.__name__,
