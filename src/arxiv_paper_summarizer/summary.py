@@ -16,6 +16,8 @@ from arxiv_paper_summarizer.types import (
     ImagePath,
     Paper,
     SectionInfo,
+    SectionNote,
+    SummaryResult,
 )
 from arxiv_paper_summarizer.utils import encode_image, extract_json_content, get_env_var
 
@@ -28,7 +30,11 @@ except ImportError:
 class ArxivPaperSummarizer:
     """Summarizer for arXiv papers."""
 
-    def __init__(self, arxiv_url: str, llm: LLM_TYPE | None = None) -> None:
+    def __init__(
+        self,
+        arxiv_url: str,
+        llm: LLM_TYPE | None = None,
+    ) -> None:
         """Initialize the summarizer."""
         self._arxiv_url = arxiv_url
         self._llm = llm
@@ -37,6 +43,8 @@ class ArxivPaperSummarizer:
         self._elements: list[Element] | None = None
         self._image_path_list: list[ImagePath] = []
 
+        self._section_notes: list[SectionNote] = []
+        self._translated_section_notes: list[SectionNote] = []
         self._image_output_dir = tempfile.mkdtemp()
 
         self._post_init()
@@ -46,11 +54,41 @@ class ArxivPaperSummarizer:
         self._elements = self.get_partition_elements()
         self._image_path_list = self.get_image_path_list()
 
-    def summarize(self):
+    def summarize(self) -> SummaryResult:
         """Summarize the arXiv paper."""
         section_list = self.extract_section_list(self.paper.text)
         section_info_list = self.get_section_info_list(section_list)
-        print(section_info_list)
+        keynote = self.extract_keynote()
+        section_notes = self.extract_section_note_list(section_info_list)
+        return SummaryResult(keynote=keynote, section_notes=section_notes)
+
+    def extract_keynote(self) -> str:
+        try:
+            return self._extract_keynote(self.paper.text)  # type: ignore
+        except Exception as e:
+            warnings.warn(f"Error in extracting keynote: {e}")
+            return ""
+
+    def extract_section_note_list(self, section_info_list: list[SectionInfo]) -> list[SectionNote]:
+        try:
+            section_note_list = [self._write_section_note(section) for section in section_info_list]
+            return TypeAdapter(list[SectionNote]).validate_python(section_note_list)
+        except Exception as e:
+            warnings.warn(f"Error in writing comprehensive analysis note: {e}")
+            return []
+
+    def _write_section_note(self, section: SectionInfo) -> SectionNote:
+        """Summarize the section."""
+        summary = self.summarize_section(text=section.content, title=section.title)  # type: ignore
+        img_summaries = [self.summarize_images(img_enc, summary) for img_enc in section.image_encoding_str_list]  # type: ignore
+        structured_section_summary = self.organize_section_summary(summary, img_summaries)  # type: ignore
+        quotes = self.extract_section_quotes(section.content, title=section.title)  # type: ignore
+        return SectionNote(
+            header=section.title,
+            summary_content=structured_section_summary,
+            quotes=quotes,
+            image_path=section.image_paths,
+        )
 
     @property
     def arxiv_url(self) -> str:
@@ -137,18 +175,19 @@ class ArxivPaperSummarizer:
             if section.content == "":
                 continue
 
-            image_content = []
+            image_encoding_str_list = []
             for filename in section.ref_fig + section.ref_tb:
                 if filename not in self.get_image_filename_set():
                     continue
                 image_path = Path(self._image_output_dir) / f"{filename}.jpg"
-                image_content.append(encode_image(str(image_path)))
+                image_encoding_str_list.append(encode_image(str(image_path)))
 
             result.append(
                 SectionInfo(
                     title=section.section,
                     content=section.content,
-                    image_content=image_content,
+                    image_encoding_str_list=image_encoding_str_list,
+                    image_paths=[image_path.path for image_path in self.image_path_list],
                 )
             )
         return TypeAdapter(list[SectionInfo]).validate_python(result)
@@ -182,3 +221,106 @@ class ArxivPaperSummarizer:
         model_name="gpt-4o-mini",
     )
     def _extract_paper_sections(self, text: str) -> str: ...  # type: ignore[empty-body]
+
+    @openai_prompt(
+        ("system", "You are a AI Research."),
+        (
+            "user",
+            "I am reading a machine learning and deep learning paper and will provide you with a section of its content. "
+            "Provide a brief summary of the section.",
+        ),
+        ("user", "## Response Format\n## {title}\n```{text}```"),
+        ("user", "## Title: {title}\nContent:\n```\n{text}\n```"),
+        model_name="gpt-4o",
+    )
+    def summarize_section(self, text: str, title: str) -> str: ...  # type: ignore[empty-body]
+
+    @openai_prompt(
+        ("system", "You are an AI research assistant."),
+        (
+            "user",
+            "## Task\n"
+            "I am reading a machine learning and deep learning paper and will provide you with a section of its content. "
+            "Extract only the essential quotes that capture the key information from this section, as follows:\n"
+            "- Include quotes that highlight the primary problem or question addressed.\n"
+            "- Add quotes describing any proposed methods or solutions, along with theoretical foundations or significant insights.\n"
+            "- Provide quotes on any major findings or important points emphasized by the author.\n"
+            "## Response Format\n"
+            "For each quote, include an explanation of its importance in this format:\n\n"
+            "> 'Quote text here'\n\n"
+            "**Explanation**: why this quote is important\n\n"
+            "## Requirements\n"
+            "- Limit to three critical quotes only.\n"
+            "- Quotes should be very critical or insightful or innovative.\n"
+            "- If the title is related to Abstract, References or Conclusion, return 'NO_QUOTES'.\n"
+            "- If the entire section is unimportant, return 'NO_QUOTES'",
+        ),
+        ("user", "## Title: {title}\nContent:\n```\n{text}\n```"),
+        model_name="gpt-4o",
+    )
+    def extract_section_quotes(self, text: str, title: str) -> str: ...  # type: ignore[empty-body]
+
+    def summarize_images(self, base64_img: str, section_summary: str) -> str:
+        content = []
+        content += [
+            {
+                "type": "text",
+                "text": "Given the image of an paper, explain the key insights and findings from the image.",
+            }
+        ]
+        content += [{"type": "text", "text": section_summary}]
+        content += [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_img}"}}]  # type: ignore
+
+        response = self.llm.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {  # type: ignore
+                    "role": "user",
+                    "content": content,
+                }
+            ],
+        )  # type: ignore
+        return response.choices[0].message.content  # type: ignore
+
+    @openai_prompt(
+        ("system", "You are an AI research assistant."),
+        (
+            "user",
+            "## Task\n"
+            "Organize the provided section summary, and image summaries into a structured format with bullet points:\n\n"
+            "- Display each line of the summary as a bullet point.\n\n"
+            "- Include the image summary as a bullet point if it not empty.\n\n",
+        ),
+        ("user", "Section Summary: ```{summary}```"),
+        ("user", "Image Summary: ```{image_summary}```"),
+        model_name="gpt-4o",
+    )
+    def organize_section_summary(self, summary: str, image_summary: list[str]): ...  # type: ignore[empty-body]
+
+    @openai_prompt(
+        ("system", "You are an AI research assistant."),
+        (
+            "user",
+            "I am reading deep learning and AI research papers and need structured notes based on specific sections of the content. "
+            "For each section provided, focus on the following points:\n\n"
+            "### Problem\n"
+            "- What problem does this paper aim to solve?\n"
+            "- What are the existing methods, and what limitations do they have?\n\n"
+            "### Solution\n"
+            "- What solution does the paper propose?\n"
+            "- What inspired this idea? Was it influenced by other papers?\n"
+            "- What theoretical basis supports this method?\n\n"
+            "### Experiment\n"
+            "- How well does the experiment perform?\n"
+            "- What limitations or assumptions are associated with this method?\n\n"
+            "### Innovation\n"
+            "- What important or novel discoveries does this paper make?\n\n"
+            "### Comments / Critique\n"
+            "- Are there any limitations in this paper?\n"
+            "- Does the paper substantiate its claims effectively?\n\n"
+            "Do NOT include any content outside this format.\n",
+        ),
+        ("user", "Section Content: ```{text}```"),
+        model_name="gpt-4o",
+    )
+    def _extract_keynote(self, text: str) -> str: ...  # type: ignore[empty-body]
