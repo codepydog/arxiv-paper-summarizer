@@ -1,38 +1,60 @@
 """Example of generating a arXiv paper report."""
 
+from datetime import datetime
+from pathlib import Path
 from dotenv import load_dotenv
 from arxiv_paper_summarizer import ArxivPaperSummarizer
 from arxiv_paper_summarizer.report import ReportGenerator
 
 load_dotenv()
 
-ARXIV_URL = "https://arxiv.org/abs/2401.18059v1"
-# ARXIV_URL = "https://arxiv.org/abs/2410.23123"
+ARXIV_URL_LIST = [
+    "https://arxiv.org/abs/2410.20672",
+    "https://arxiv.org/abs/2410.10762",
+    "https://arxiv.org/abs/2410.21943",
+    "https://arxiv.org/pdf/2410.22071",
+    "https://arxiv.org/abs/2410.18982",
+    "https://arxiv.org/abs/2410.19750",
+    "https://arxiv.org/abs/2410.19385",
+]
 LANGUAGE = "Traditional Chinese"
-# LANGUAGE = "English"
+PAPER_SAVE_DIR = Path("papers")
+
+
+def generate_report(arxiv_url, language, save_dir):
+    print(f"Starting to summarize the paper {arxiv_url}")
+    summarizer = ArxivPaperSummarizer(
+        arxiv_url=arxiv_url,
+        extract_section_notes=False,
+    )
+    summary_result = summarizer.summarize()
+
+    print("Starting to generate the report for the paper")
+    report = ReportGenerator(
+        paper=summarizer.paper,
+        keynote=summary_result.keynote,
+        section_notes=summary_result.section_notes,
+        language=language,
+        cover_path=summarizer.get_cover_image_path(),
+    )
+
+    output_path = save_dir / f"{summarizer.paper.title} ({language}).pdf"
+    report.generate_pdf_report(output_path=output_path)
+    print(f"Report successfully generated at {output_path}")
 
 
 def main():
-    print("Starting to summarize the paper")
-    paper_summarizer = ArxivPaperSummarizer(
-        arxiv_url=ARXIV_URL,
-        extract_section_notes=True,
-    )
-    summary_result = paper_summarizer.summarize()
+    weekly_dir = PAPER_SAVE_DIR / f"{datetime.now():%Y}/week_{datetime.now().isocalendar()[1]:02}"
+    weekly_dir.mkdir(parents=True, exist_ok=True)
 
-    print("Starting to generate the report for the paper")
-    report_generator = ReportGenerator(
-        paper=paper_summarizer.paper,
-        keynote=summary_result.keynote,
-        section_notes=summary_result.section_notes,
-        language=LANGUAGE,
-        cover_path=paper_summarizer.get_cover_image_path(),
-    )
-
-    paper_title = paper_summarizer.paper.title
-    report_generator.generate_pdf_report(output_path=f"{paper_title} ({LANGUAGE}).pdf")
-    print(f"Report successfully generated at {paper_title}.pdf")
+    for url in ARXIV_URL_LIST:
+        try:
+            generate_report(url, LANGUAGE, save_dir=weekly_dir)
+        except Exception as e:
+            print(f"Failed to generate report for {url}: {e}")
+    print("All reports generated successfully!")
 
 
 if __name__ == "__main__":
+
     main()

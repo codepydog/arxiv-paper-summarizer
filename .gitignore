@@ -236,3 +236,6 @@ $RECYCLE.BIN/
 
 # Pycharm
 .idea/
+
+# Paper storage
+paper*
