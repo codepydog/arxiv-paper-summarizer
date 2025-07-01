@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "arxiv_paper_summarizer"
-version = "0.0.1"
+version = "0.0.2"
 description = "An AI project that provides concise summaries from arXiv URLs via Gradio UI."
 authors = ["happyPydog <codepydog@gmail.com>"]
 packages = [{ include = "arxiv_paper_summarizer", from = "src" }]
