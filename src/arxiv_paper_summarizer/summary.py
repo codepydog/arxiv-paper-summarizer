@@ -285,7 +285,7 @@ class ArxivPaperSummarizer:
         ),
         ("user", "## Response Format\n## {title}\n```{text}```"),
         ("user", "## Title: {title}\nContent:\n```\n{text}\n```"),
-        model_name="gpt-4o",
+        model_name="claude-4-sonnet",  # type: ignore[arg-type]
     )
     def summarize_section(self, text: str, title: str) -> str: ...  # type: ignore[empty-body]
 
@@ -302,13 +302,13 @@ class ArxivPaperSummarizer:
             "## Response Format\n"
             "> 'Quote text here'\n\n"
             "## Requirements\n"
-            "- Limit to three critical quotes only.\n"
+            "- Limit to ONLY three critical quotes.\n"
             "- Quotes should be very critical or insightful or innovative.\n"
             "- If the title is related to Abstract, References or Conclusion, return 'NO_QUOTES'.\n"
             "- If the entire section is unimportant, return 'NO_QUOTES'",
         ),
         ("user", "## Title: {title}\nContent:\n```\n{text}\n```"),
-        model_name="gpt-4o",
+        model_name="claude-4-sonnet",  # type: ignore[arg-type]
     )
     def extract_section_quotes(self, text: str, title: str) -> str: ...  # type: ignore[empty-body]
 
@@ -324,7 +324,7 @@ class ArxivPaperSummarizer:
         content += [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_img}"}}]  # type: ignore
 
         response = self.llm.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4.1",
             messages=[
                 {  # type: ignore
                     "role": "user",
@@ -373,6 +373,6 @@ class ArxivPaperSummarizer:
             "Do NOT include any content outside this format.\n",
         ),
         ("user", "Section Content: ```{text}```"),
-        model_name="gpt-4o",
+        model_name="claude-4-sonnet",  # type: ignore[arg-type]
     )
     def _extract_keynote(self, text: str) -> str: ...  # type: ignore[empty-body]

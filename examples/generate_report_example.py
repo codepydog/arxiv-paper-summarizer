@@ -9,23 +9,25 @@ from arxiv_paper_summarizer.report import ReportGenerator
 load_dotenv()
 
 ARXIV_URL_LIST = [
-    "https://arxiv.org/abs/2410.20672",
-    "https://arxiv.org/abs/2410.10762",
-    "https://arxiv.org/abs/2410.21943",
-    "https://arxiv.org/pdf/2410.22071",
-    "https://arxiv.org/abs/2410.18982",
-    "https://arxiv.org/abs/2410.19750",
-    "https://arxiv.org/abs/2410.19385",
+    # "https://arxiv.org/abs/2410.20672",
+    # "https://arxiv.org/abs/2410.10762",
+    # "https://arxiv.org/abs/2410.21943",
+    # "https://arxiv.org/pdf/2410.22071",
+    # "https://arxiv.org/abs/2410.18982",
+    # "https://arxiv.org/abs/2410.19750",
+    # "https://arxiv.org/abs/2410.19385",
+    "https://arxiv.org/abs/2506.21495",
 ]
 LANGUAGE = "Traditional Chinese"
 PAPER_SAVE_DIR = Path("papers")
+EXTRACT_SECTION_NOTES = True
 
 
 def generate_report(arxiv_url, language, save_dir):
     print(f"Starting to summarize the paper {arxiv_url}")
     summarizer = ArxivPaperSummarizer(
         arxiv_url=arxiv_url,
-        extract_section_notes=False,
+        extract_section_notes=EXTRACT_SECTION_NOTES,
     )
     summary_result = summarizer.summarize()
 
