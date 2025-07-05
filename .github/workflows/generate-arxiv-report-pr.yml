@@ -1,0 +1,317 @@
+name: Generate ArXiv Paper Report (PR)
+
+on:
+  workflow_dispatch:
+    inputs:
+      arxiv_url:
+        description: 'ArXiv paper URL (e.g., https://arxiv.org/abs/2410.20672)'
+        required: true
+        type: string
+      language:
+        description: 'Report language'
+        required: false
+        default: 'English'
+        type: choice
+        options:
+          - 'English'
+          - 'Traditional Chinese'
+      mode:
+        description: 'Report mode'
+        required: false
+        default: 'simple'
+        type: choice
+        options:
+          - 'simple'
+          - 'detailed'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  generate-report-pr:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install system dependencies
+      run: |
+        set -e
+        echo "📦 Installing system dependencies..."
+        sudo apt-get update || {
+          echo "❌ Failed to update package lists"
+          exit 1
+        }
+        
+        echo "📋 Installing required packages..."
+        sudo apt-get install -y \
+          libfontconfig1-dev \
+          libfreetype6-dev \
+          libx11-dev \
+          libxext-dev \
+          libxfixes-dev \
+          libxi-dev \
+          libxrender-dev \
+          libxcb1-dev \
+          libx11-xcb-dev \
+          libxcb-glx0-dev \
+          libxcb-render0-dev \
+          libxcb-render-util0-dev \
+          libxcb-shape0-dev \
+          libxcb-randr0-dev \
+          libxcb-image0-dev \
+          libxcb-shm0-dev \
+          libxcb-xfixes0-dev \
+          wkhtmltopdf \
+          poppler-utils \
+          tesseract-ocr \
+          fonts-noto-cjk || {
+          echo "❌ Failed to install system dependencies"
+          exit 1
+        }
+        
+        echo "✅ System dependencies installed successfully"
+        echo "🔍 Verifying key dependencies:"
+        wkhtmltopdf --version || echo "⚠️  wkhtmltopdf not found"
+        pdfinfo -v || echo "⚠️  pdfinfo not found"
+        pdftoppm -h > /dev/null 2>&1 || echo "⚠️  pdftoppm not found"
+        tesseract --version || echo "⚠️  tesseract not found"
+    
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+      with:
+        version: latest
+        virtualenvs-create: true
+        virtualenvs-in-project: true
+    
+    - name: Load cached venv
+      id: cached-poetry-dependencies
+      uses: actions/cache@v4
+      with:
+        path: .venv
+        key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('**/poetry.lock') }}
+    
+    - name: Install dependencies
+      run: |
+        set -e
+        if [ "${{ steps.cached-poetry-dependencies.outputs.cache-hit }}" = "true" ]; then
+          echo "📦 Using cached Python dependencies..."
+          echo "✅ Cache hit - verifying installation"
+          poetry show --tree || poetry show || {
+            echo "⚠️  Cache seems corrupted, reinstalling..."
+            poetry install || {
+              echo "❌ Failed to install dependencies after cache corruption"
+              exit 1
+            }
+          }
+        else
+          echo "📦 Installing Python dependencies..."
+          echo "🔍 Cache miss - installing fresh dependencies"
+          make install || {
+            echo "❌ Failed to install dependencies via make install"
+            echo "🔍 Trying direct poetry install..."
+            poetry install || {
+              echo "❌ Poetry install also failed"
+              echo "📋 Poetry environment info:"
+              poetry env info
+              echo "📋 Poetry show (if available):"
+              poetry show || echo "Could not show installed packages"
+              exit 1
+            }
+          }
+        fi
+        echo "✅ Dependencies ready"
+        echo "📋 Installed packages:"
+        poetry show --tree || poetry show
+        
+        echo "📦 Downloading NLTK resources..."
+        poetry run python -c "import nltk; import ssl; import os; ssl._create_default_https_context = ssl._create_unverified_context; nltk_data_dir = os.path.expanduser('~/.local/share/nltk_data'); os.makedirs(nltk_data_dir, exist_ok=True); nltk.data.path.append(nltk_data_dir); [nltk.download(pkg, download_dir=nltk_data_dir, quiet=True) for pkg in ['punkt', 'punkt_tab', 'averaged_perceptron_tagger', 'stopwords']]; print('✅ NLTK resources downloaded successfully')" || {
+          echo "❌ Failed to download NLTK resources"
+          exit 1
+        }
+    
+    - name: Set up environment variables
+      run: |
+        echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> $GITHUB_ENV
+        echo "OPENAI_BASE_URL=${{ secrets.OPENAI_BASE_URL }}" >> $GITHUB_ENV
+    
+    - name: Generate report
+      id: generate
+      run: |
+        set -e
+        set -x
+        
+        echo "🚀 Starting ArXiv report generation..."
+        echo "📋 Input parameters:"
+        echo "   📄 ArXiv URL: ${{ inputs.arxiv_url }}"
+        echo "   🌍 Language: ${{ inputs.language }}"
+        echo "   ⚙️  Mode: ${{ inputs.mode }}"
+        echo "   🐍 Python version: $(python --version)"
+        echo "   📦 Poetry version: $(poetry --version)"
+        
+        echo "🔍 Environment check:"
+        echo "   🔑 OpenAI API key set: $([ -n "$OPENAI_API_KEY" ] && echo "✅ Yes" || echo "❌ No")"
+        echo "   🌐 OpenAI base URL: ${OPENAI_BASE_URL:-"Default"}"
+        echo "   💾 Available disk space: $(df -h . | tail -1 | awk '{print $4}')"
+        
+        echo "📁 Current working directory: $(pwd)"
+        echo "📋 Directory contents:"
+        ls -la
+        
+        echo "🚀 Executing report generation..."
+        poetry run python scripts/generate_single_report.py "${{ inputs.arxiv_url }}" --language "${{ inputs.language }}" --mode "${{ inputs.mode }}" || {
+          echo "💥 Report generation failed with exit code $?"
+          echo "🔍 Checking for any generated files..."
+          find . -name "*.pdf" -type f -newer /tmp -ls 2>/dev/null || echo "No PDF files found"
+          find papers/ -type f -ls 2>/dev/null || echo "No files found in papers directory"
+          echo "📋 Final directory contents:"
+          ls -la papers/ 2>/dev/null || echo "Papers directory not found"
+          exit 1
+        }
+        
+        echo "✅ Report generation completed successfully"
+        
+        ARXIV_ID=$(echo "${{ inputs.arxiv_url }}" | sed 's/.*\///')
+        echo "report_id=${ARXIV_ID}" >> $GITHUB_OUTPUT
+    
+    - name: Configure Git
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+    
+    - name: Create branch and commit report
+      id: create_branch
+      run: |
+        set -e
+        echo "📋 Checking for generated files to commit..."
+        
+        if [ ! -d "papers/" ]; then
+          echo "❌ Papers directory not found!"
+          exit 1
+        fi
+        
+        echo "📁 Papers directory contents:"
+        find papers/ -type f -ls || echo "No files found in papers directory"
+        
+        BRANCH_NAME="arxiv-report-${{ steps.generate.outputs.report_id }}-$(date +%Y%m%d-%H%M%S)"
+        echo "🌱 Creating new branch: ${BRANCH_NAME}"
+        git checkout -b "${BRANCH_NAME}" || {
+          echo "❌ Failed to create branch ${BRANCH_NAME}"
+          exit 1
+        }
+        
+        echo "📝 Adding files to git..."
+        git add papers/ || {
+          echo "❌ Failed to add papers directory to git"
+          exit 1
+        }
+        
+        echo "🔍 Checking for changes to commit..."
+        if git diff --staged --quiet; then
+          echo "⚠️  No changes to commit - this might indicate an issue with report generation"
+          echo "📋 Git status:"
+          git status
+          exit 1
+        else
+          echo "✅ Changes detected, proceeding with commit..."
+          echo "📋 Files to be committed:"
+          git diff --staged --name-only
+          
+          echo "📝 Committing changes..."
+          git commit -m "Add arXiv paper report: ${{ inputs.arxiv_url }}" \
+                     -m "Generated report for arXiv paper: ${{ inputs.arxiv_url }}" \
+                     -m "Language: ${{ inputs.language }}" \
+                     -m "Mode: ${{ inputs.mode }}" \
+                     -m "Generated at: $(date)" || {
+            echo "❌ Failed to commit changes"
+            echo "📋 Git status:"
+            git status
+            exit 1
+          }
+          
+          echo "🚀 Pushing branch to repository..."
+          git push origin "${BRANCH_NAME}" || {
+            echo "❌ Failed to push branch to repository"
+            echo "📋 Git log (last 3 commits):"
+            git log --oneline -3
+            exit 1
+          }
+          
+          echo "✅ Branch created and pushed successfully"
+          echo "branch_name=${BRANCH_NAME}" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Create Pull Request
+      uses: peter-evans/create-pull-request@v5
+      with:
+        token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
+        branch: ${{ steps.create_branch.outputs.branch_name }}
+        title: "📄 Add ArXiv Paper Report: ${{ steps.generate.outputs.report_id }}"
+        body: |
+          ## 📄 ArXiv Paper Report
+          
+          **Paper URL:** ${{ inputs.arxiv_url }}
+          **Language:** ${{ inputs.language }}
+          **Mode:** ${{ inputs.mode }}
+          **Generated at:** ${{ github.event.head_commit.timestamp }}
+          
+          ---
+          
+          ### 📋 Summary
+          This PR adds a new ArXiv paper report generated automatically via GitHub Actions.
+          
+          ### 🔍 What's included
+          - Generated paper summary and analysis
+          - PDF report (if applicable)
+          - Structured data files
+          
+          ### ✅ Review checklist
+          - [ ] Report content is accurate and complete
+          - [ ] File structure follows project conventions
+          - [ ] No sensitive information is exposed
+          
+          ---
+          
+          *This PR was automatically generated by the `generate-arxiv-report-pr` workflow.*
+        labels: |
+          arxiv-report
+          automated
+          review-required
+        reviewers: ${{ github.actor }}
+        draft: false
+
+    - name: Upload report as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: arxiv-report-pr-${{ github.run_number }}
+        path: papers/
+        retention-days: 30
+
+    - name: Summary
+      run: |
+        echo "## 📄 ArXiv Paper Report Generated (PR Created)!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Paper URL:** ${{ inputs.arxiv_url }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Language:** ${{ inputs.language }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Mode:** ${{ inputs.mode }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Branch:** ${{ steps.create_branch.outputs.branch_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Generated Report:** \`${{ steps.generate.outputs.report_id }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "🔄 **A Pull Request has been created for review before merging to main branch.**" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "The report has been committed to a feature branch and is also available as an artifact." >> $GITHUB_STEP_SUMMARY
+        echo "Please review the PR before merging to ensure quality and accuracy." >> $GITHUB_STEP_SUMMARY
