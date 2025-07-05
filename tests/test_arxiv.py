@@ -45,11 +45,25 @@ def test_fetch_papers_by_url():
     mock_paper.entry_id = "https://arxiv.org/abs/1234.56789"
     mock_paper.download_pdf.return_value = "/tmp/sample.pdf"
 
+    # Mock authors
+    mock_author1 = MagicMock()
+    mock_author1.name = "John Doe"
+    mock_author2 = MagicMock()
+    mock_author2.name = "Jane Smith"
+    mock_paper.authors = [mock_author1, mock_author2]
+
+    # Mock published date
+    from datetime import datetime
+
+    mock_paper.published = datetime(2024, 1, 15, 10, 30)
+
     with patch.object(client, "search_by_url", return_value=[mock_paper]):
         with patch("fitz.open", return_value=[MagicMock(get_text=lambda: "Paper content")]):
             papers = client.fetch_papers_by_url(urls)
             assert len(papers) == 1
             assert papers[0].title == "Sample Paper"
+            assert papers[0].authors == ["John Doe", "Jane Smith"]
+            assert papers[0].published == "2024-01-15T10:30:00"
 
 
 def test_fetch_papers_with_references_by_url():
@@ -59,16 +73,18 @@ def test_fetch_papers_with_references_by_url():
     main_paper.title = "Main Paper"
     main_paper.entry_id = "https://arxiv.org/abs/1234.56789"
     main_paper.download_pdf.return_value = "/tmp/main.pdf"
+    main_paper.authors = []
+    main_paper.published = None
 
     ref_paper = MagicMock()
     ref_paper.title = "Reference Paper"
     ref_paper.entry_id = "https://arxiv.org/abs/9876.54321"
     ref_paper.download_pdf.return_value = "/tmp/ref.pdf"
+    ref_paper.authors = []
+    ref_paper.published = None
 
     with patch.object(client, "search_by_url", side_effect=[[main_paper], [ref_paper]]):
-        with patch(
-            "fitz.open", return_value=[MagicMock(get_text=lambda: "Content with https://arxiv.org/abs/9876.54321")]
-        ):
+        with patch("fitz.open", return_value=[MagicMock(get_text=lambda: "Content with https://arxiv.org/abs/9876.54321")]):
             papers = client.fetch_papers_with_references_by_url(urls)
             assert len(papers) == 1
             assert papers[0].references is not None
@@ -82,6 +98,8 @@ def test_fetch_papers_by_query():
     mock_paper.title = "Sample Query"
     mock_paper.entry_id = "https://arxiv.org/abs/1234.56789"
     mock_paper.download_pdf.return_value = "/tmp/sample.pdf"
+    mock_paper.authors = []
+    mock_paper.published = None
 
     with patch.object(client, "search_by_query", return_value=[mock_paper]):
         with patch("fitz.open", return_value=[MagicMock(get_text=lambda: "Paper content")]):
@@ -97,11 +115,15 @@ def test_fetch_papers_with_references_by_query():
     main_paper.title = "Sample Query"
     main_paper.entry_id = "https://arxiv.org/abs/1234.56789"
     main_paper.download_pdf.return_value = "/tmp/main.pdf"
+    main_paper.authors = []
+    main_paper.published = None
 
     ref_paper = MagicMock()
     ref_paper.title = "Reference Paper"
     ref_paper.entry_id = "https://arxiv.org/abs/9876.54321"
     ref_paper.download_pdf.return_value = "/tmp/ref.pdf"
+    ref_paper.authors = []
+    ref_paper.published = None
 
     with patch.object(client, "search_by_query", return_value=[main_paper]):
         with patch.object(
@@ -109,9 +131,7 @@ def test_fetch_papers_with_references_by_query():
             "fetch_papers_by_url",
             return_value=[Paper(title="Reference Paper", text="Content", url="https://arxiv.org/abs/9876.54321")],
         ):
-            with patch(
-                "fitz.open", return_value=[MagicMock(get_text=lambda: "Content with https://arxiv.org/abs/9876.54321")]
-            ):
+            with patch("fitz.open", return_value=[MagicMock(get_text=lambda: "Content with https://arxiv.org/abs/9876.54321")]):
                 papers = client.fetch_papers_with_references_by_query(queries)
                 assert len(papers) == 1
                 assert papers[0].references is not None
@@ -198,3 +218,60 @@ def test_extract_refs():
     assert len(refs) == 2
     assert paper1 in refs
     assert paper2 in refs
+
+
+def test_paper_model_with_authors_and_published():
+    """Test that Paper model correctly handles authors and published fields."""
+    # Test with all fields provided
+    paper = Paper(
+        title="Test Paper",
+        text="Test content",
+        url="https://arxiv.org/abs/1234.56789",
+        authors=["Alice Johnson", "Bob Wilson"],
+        published="2024-01-15T10:30:00",
+    )
+
+    assert paper.title == "Test Paper"
+    assert paper.text == "Test content"
+    assert str(paper.url) == "https://arxiv.org/abs/1234.56789"
+    assert paper.authors == ["Alice Johnson", "Bob Wilson"]
+    assert paper.published == "2024-01-15T10:30:00"
+
+    # Test with default values (empty authors list, None published)
+    paper_defaults = Paper(title="Test Paper 2", text="Test content 2", url="https://arxiv.org/abs/9876.54321")
+
+    assert paper_defaults.title == "Test Paper 2"
+    assert paper_defaults.text == "Test content 2"
+    assert str(paper_defaults.url) == "https://arxiv.org/abs/9876.54321"
+    assert paper_defaults.authors == []  # Default empty list
+    assert paper_defaults.published is None  # Default None
+
+
+def test_fetch_papers_by_query_with_authors_and_published():
+    """Test that fetch_papers_by_query correctly populates authors and published fields."""
+    client = ArxivClient()
+    queries = ["Sample Query"]
+    mock_paper = MagicMock()
+    mock_paper.title = "Sample Query"
+    mock_paper.entry_id = "https://arxiv.org/abs/1234.56789"
+    mock_paper.download_pdf.return_value = "/tmp/sample.pdf"
+
+    # Mock authors
+    mock_author1 = MagicMock()
+    mock_author1.name = "Charlie Brown"
+    mock_author2 = MagicMock()
+    mock_author2.name = "Dana White"
+    mock_paper.authors = [mock_author1, mock_author2]
+
+    # Mock published date
+    from datetime import datetime
+
+    mock_paper.published = datetime(2023, 12, 5, 14, 45)
+
+    with patch.object(client, "search_by_query", return_value=[mock_paper]):
+        with patch("fitz.open", return_value=[MagicMock(get_text=lambda: "Paper content")]):
+            papers = client.fetch_papers_by_query(queries)
+            assert len(papers) == 1
+            assert papers[0].title == "Sample Query"
+            assert papers[0].authors == ["Charlie Brown", "Dana White"]
+            assert papers[0].published == "2023-12-05T14:45:00"

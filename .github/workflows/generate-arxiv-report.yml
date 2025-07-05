@@ -24,15 +24,23 @@ on:
           - 'simple'
           - 'detailed'
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   generate-report:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        token: ${{ secrets.GITHUB_TOKEN }}
+        token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
     
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -41,7 +49,14 @@ jobs:
     
     - name: Install system dependencies
       run: |
-        sudo apt-get update
+        set -e
+        echo "📦 Installing system dependencies..."
+        sudo apt-get update || {
+          echo "❌ Failed to update package lists"
+          exit 1
+        }
+        
+        echo "📋 Installing required packages..."
         sudo apt-get install -y \
           libfontconfig1-dev \
           libfreetype6-dev \
@@ -61,7 +76,19 @@ jobs:
           libxcb-shm0-dev \
           libxcb-xfixes0-dev \
           wkhtmltopdf \
-          fonts-noto-cjk
+          poppler-utils \
+          tesseract-ocr \
+          fonts-noto-cjk || {
+          echo "❌ Failed to install system dependencies"
+          exit 1
+        }
+        
+        echo "✅ System dependencies installed successfully"
+        echo "🔍 Verifying key dependencies:"
+        wkhtmltopdf --version || echo "⚠️  wkhtmltopdf not found"
+        pdfinfo -v || echo "⚠️  pdfinfo not found"
+        pdftoppm -h > /dev/null 2>&1 || echo "⚠️  pdftoppm not found"
+        tesseract --version || echo "⚠️  tesseract not found"
     
     - name: Install Poetry
       uses: snok/install-poetry@v1
@@ -72,14 +99,49 @@ jobs:
     
     - name: Load cached venv
       id: cached-poetry-dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: .venv
         key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('**/poetry.lock') }}
     
     - name: Install dependencies
-      if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
-      run: make install
+      run: |
+        set -e
+        if [ "${{ steps.cached-poetry-dependencies.outputs.cache-hit }}" = "true" ]; then
+          echo "📦 Using cached Python dependencies..."
+          echo "✅ Cache hit - verifying installation"
+          poetry show --tree || poetry show || {
+            echo "⚠️  Cache seems corrupted, reinstalling..."
+            poetry install || {
+              echo "❌ Failed to install dependencies after cache corruption"
+              exit 1
+            }
+          }
+        else
+          echo "📦 Installing Python dependencies..."
+          echo "🔍 Cache miss - installing fresh dependencies"
+          make install || {
+            echo "❌ Failed to install dependencies via make install"
+            echo "🔍 Trying direct poetry install..."
+            poetry install || {
+              echo "❌ Poetry install also failed"
+              echo "📋 Poetry environment info:"
+              poetry env info
+              echo "📋 Poetry show (if available):"
+              poetry show || echo "Could not show installed packages"
+              exit 1
+            }
+          }
+        fi
+        echo "✅ Dependencies ready"
+        echo "📋 Installed packages:"
+        poetry show --tree || poetry show
+        
+        echo "📦 Downloading NLTK resources..."
+        poetry run python -c "import nltk; import ssl; import os; ssl._create_default_https_context = ssl._create_unverified_context; nltk_data_dir = os.path.expanduser('~/.local/share/nltk_data'); os.makedirs(nltk_data_dir, exist_ok=True); nltk.data.path.append(nltk_data_dir); [nltk.download(pkg, download_dir=nltk_data_dir, quiet=True) for pkg in ['punkt', 'punkt_tab', 'averaged_perceptron_tagger', 'stopwords']]; print('✅ NLTK resources downloaded successfully')" || {
+          echo "❌ Failed to download NLTK resources"
+          exit 1
+        }
     
     - name: Set up environment variables
       run: |
@@ -89,7 +151,38 @@ jobs:
     - name: Generate report
       id: generate
       run: |
-        poetry run python scripts/generate_single_report.py "${{ inputs.arxiv_url }}" --language "${{ inputs.language }}" --mode "${{ inputs.mode }}"
+        set -e  # Exit on any error
+        set -x  # Print commands as they are executed
+        
+        echo "🚀 Starting ArXiv report generation..."
+        echo "📋 Input parameters:"
+        echo "   📄 ArXiv URL: ${{ inputs.arxiv_url }}"
+        echo "   🌍 Language: ${{ inputs.language }}"
+        echo "   ⚙️  Mode: ${{ inputs.mode }}"
+        echo "   🐍 Python version: $(python --version)"
+        echo "   📦 Poetry version: $(poetry --version)"
+        
+        echo "🔍 Environment check:"
+        echo "   🔑 OpenAI API key set: $([ -n "$OPENAI_API_KEY" ] && echo "✅ Yes" || echo "❌ No")"
+        echo "   🌐 OpenAI base URL: ${OPENAI_BASE_URL:-"Default"}"
+        echo "   💾 Available disk space: $(df -h . | tail -1 | awk '{print $4}')"
+        
+        echo "📁 Current working directory: $(pwd)"
+        echo "📋 Directory contents:"
+        ls -la
+        
+        echo "🚀 Executing report generation..."
+        poetry run python scripts/generate_single_report.py "${{ inputs.arxiv_url }}" --language "${{ inputs.language }}" --mode "${{ inputs.mode }}" || {
+          echo "💥 Report generation failed with exit code $?"
+          echo "🔍 Checking for any generated files..."
+          find . -name "*.pdf" -type f -newer /tmp -ls 2>/dev/null || echo "No PDF files found"
+          find papers/ -type f -ls 2>/dev/null || echo "No files found in papers directory"
+          echo "📋 Final directory contents:"
+          ls -la papers/ 2>/dev/null || echo "Papers directory not found"
+          exit 1
+        }
+        
+        echo "✅ Report generation completed successfully"
     
     - name: Configure Git
       run: |
@@ -98,17 +191,56 @@ jobs:
     
     - name: Commit and push report
       run: |
-        git add papers/
+        set -e
+        echo "📋 Checking for generated files to commit..."
+        
+        # Check if papers directory exists and has content
+        if [ ! -d "papers/" ]; then
+          echo "❌ Papers directory not found!"
+          exit 1
+        fi
+        
+        echo "📁 Papers directory contents:"
+        find papers/ -type f -ls || echo "No files found in papers directory"
+        
+        echo "📝 Adding files to git..."
+        git add papers/ || {
+          echo "❌ Failed to add papers directory to git"
+          exit 1
+        }
+        
+        echo "🔍 Checking for changes to commit..."
         if git diff --staged --quiet; then
-          echo "No changes to commit"
+          echo "⚠️  No changes to commit - this might indicate an issue with report generation"
+          echo "📋 Git status:"
+          git status
+          exit 1
         else
-          git commit -m "Add arXiv paper report: ${{ steps.generate.outputs.report_filename }}"
-          git push
-          echo "Report committed and pushed successfully"
+          echo "✅ Changes detected, proceeding with commit..."
+          echo "📋 Files to be committed:"
+          git diff --staged --name-only
+          
+          echo "📝 Committing changes..."
+          git commit -m "Add arXiv paper report: ${{ steps.generate.outputs.report_filename }}" || {
+            echo "❌ Failed to commit changes"
+            echo "📋 Git status:"
+            git status
+            exit 1
+          }
+          
+          echo "🚀 Pushing changes to repository..."
+          git push || {
+            echo "❌ Failed to push changes to repository"
+            echo "📋 Git log (last 3 commits):"
+            git log --oneline -3
+            exit 1
+          }
+          
+          echo "✅ Report committed and pushed successfully"
         fi
     
     - name: Upload report as artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: arxiv-report-${{ github.run_number }}
         path: papers/

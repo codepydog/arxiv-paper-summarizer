@@ -23,6 +23,8 @@ class Paper(BaseModel):
     title: str
     text: str
     url: AnyHttpUrl
+    authors: list[str] = Field(default_factory=list, description="List of paper authors")
+    published: str | None = Field(default=None, description="Publication date")
     references: list[Paper] | None = None  # type: ignore
 
     def flatten(self) -> list[Paper]:
