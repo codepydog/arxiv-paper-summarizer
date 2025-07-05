@@ -294,7 +294,7 @@ jobs:
           --body-file pr_body.md \
           --head "${{ steps.create_branch.outputs.branch_name }}" \
           --base "main" \
-          --label "arxiv-paper-report" \
+          --label "generate-arxiv-paper-summary" \
           --reviewer "${{ github.actor }}" || {
           echo "❌ Failed to create PR"
           echo "📋 Available branches:"
