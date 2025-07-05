@@ -81,7 +81,15 @@ class ArxivClient:
                 doc = cast(fitz.Document, fitz.open(pdf_path))
                 text = "".join([page.get_text() for page in doc])  # type: ignore
 
-            papers.append(Paper(title=paper.title, text=text, url=paper.entry_id))  # type: ignore
+            papers.append(
+                Paper(
+                    title=paper.title,
+                    text=text,
+                    url=paper.entry_id,
+                    authors=[author.name for author in paper.authors],
+                    published=paper.published.isoformat() if paper.published else None,
+                )
+            )  # type: ignore
 
         return papers
 
@@ -107,7 +115,15 @@ class ArxivClient:
                     pdf_path = paper.download_pdf(dirpath=temp_dir)
                     doc = cast(fitz.Document, fitz.open(pdf_path))
                     text = "".join([page.get_text() for page in doc])  # type: ignore
-                papers.append(Paper(title=paper.title, text=text, url=paper.entry_id))  # type: ignore
+                papers.append(
+                    Paper(
+                        title=paper.title,
+                        text=text,
+                        url=paper.entry_id,
+                        authors=[author.name for author in paper.authors],
+                        published=paper.published.isoformat() if paper.published else None,
+                    )
+                )  # type: ignore
 
         return papers
 

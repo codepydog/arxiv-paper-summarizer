@@ -27,6 +27,9 @@ from arxiv_paper_summarizer.utils import (
     get_env_var,
     is_first_figure,
     normalize_image_filename,
+    patch_nltk_download,
+    setup_nltk_offline,
+    setup_unstructured_environment,
 )
 
 try:
@@ -58,7 +61,29 @@ class ArxivPaperSummarizer:
         self._image_path_list: list[ImagePath] = []
         self._image_output_dir = tempfile.mkdtemp()
 
+        # Setup NLTK and unstructured environment before processing
+        self._setup_environment()
+
         self._post_init()
+
+    def _setup_environment(self):
+        """Setup NLTK and unstructured environment for robust processing."""
+        try:
+            # Setup environment variables to prevent unstructured from downloading NLTK packages
+            setup_unstructured_environment()
+
+            # Patch NLTK download to handle network errors gracefully
+            patch_nltk_download()
+
+            # Try to setup NLTK offline
+            setup_nltk_offline()
+
+            if self._verbose:
+                print("✅ Environment setup completed successfully")
+
+        except Exception as e:
+            warnings.warn(f"Environment setup encountered issues: {e}")
+            # Continue anyway as this might still work
 
     def _post_init(self):
         self._paper = self.get_paper()
@@ -83,8 +108,10 @@ class ArxivPaperSummarizer:
         try:
             return self._extract_keynote(self.paper.text)  # type: ignore
         except Exception as e:
-            warnings.warn(f"Error in extracting keynote: {e}")
-            return ""
+            error_msg = f"Failed to extract keynote from paper: {e}"
+            warnings.warn(error_msg)
+            # For debugging purposes, also raise the exception to get full stack trace
+            raise RuntimeError(error_msg) from e
 
     def extract_section_note_list(self, section_info_list: list[SectionInfo]) -> list[SectionNote]:
         """Extract the section notes of the paper."""
@@ -149,28 +176,93 @@ class ArxivPaperSummarizer:
 
     def get_paper(self) -> Paper:
         """Get the arXiv paper."""
-        papers = fetch_papers_by_url(self.arxiv_url)
-        if not papers:
-            raise ValueError(f"No paper found for URL '{self.arxiv_url}'.")
+        try:
+            papers = fetch_papers_by_url(self.arxiv_url)
+            if not papers:
+                raise ValueError(f"No paper found for URL '{self.arxiv_url}'. Please verify the URL is correct and the paper exists.")
 
-        if len(papers) > 1:
-            warnings.warn(f"Multiple papers found for URL '{self.arxiv_url}'. Using the first one. ")
+            if len(papers) > 1:
+                warnings.warn(f"Multiple papers found for URL '{self.arxiv_url}'. Using the first one.")
 
-        return papers[0]
+            paper = papers[0]
+            if not paper.title:
+                raise ValueError("Paper fetched successfully but has no title. This might indicate a parsing issue.")
+
+            return paper
+        except Exception as e:
+            raise RuntimeError(f"Failed to fetch paper from ArXiv URL '{self.arxiv_url}': {e}") from e
 
     def get_partition_elements(self) -> list[Element]:
         """Get the partition elements of the paper."""
-        file = load_paper_as_file_by_url(self.arxiv_url)
-        elements = partition_pdf(
-            file=file,
-            strategy="hi_res",
-            infer_table_structure=True,
-            extract_images_in_pdf=True,
-            extract_image_block_types=["Image", "Table"],
-            extract_image_block_to_payload=False,
-            extract_image_block_output_dir=self._image_output_dir,
-        )
-        return elements
+        try:
+            file = load_paper_as_file_by_url(self.arxiv_url)
+
+            # First attempt with high-resolution strategy
+            try:
+                elements = partition_pdf(
+                    file=file,
+                    strategy="hi_res",
+                    infer_table_structure=True,
+                    extract_images_in_pdf=True,
+                    extract_image_block_types=["Image", "Table"],
+                    extract_image_block_to_payload=False,
+                    extract_image_block_output_dir=self._image_output_dir,
+                )
+                return elements
+            except Exception as hi_res_error:
+                error_str = str(hi_res_error).lower()
+
+                # If it's an NLTK/HTTP error, try fallback strategy
+                if ("nltk" in error_str and ("403" in error_str or "forbidden" in error_str)) or "http error 403" in error_str:
+                    warnings.warn(f"High-resolution processing failed due to NLTK download issue, trying fallback strategy: {hi_res_error}")
+
+                    # Try with a simpler strategy that might not require NLTK
+                    try:
+                        elements = partition_pdf(
+                            file=file,
+                            strategy="fast",
+                            extract_images_in_pdf=False,  # Disable image extraction to avoid NLTK issues
+                            extract_image_block_types=[],
+                        )
+                        warnings.warn("Using fallback strategy without image extraction due to NLTK issues")
+                        return elements
+                    except Exception as fallback_error:
+                        # If fallback also fails, provide comprehensive error message
+                        raise RuntimeError(
+                            "PDF processing failed with both high-resolution and fallback strategies. "
+                            "This appears to be due to NLTK resource download issues in a restricted network environment. "
+                            "To fix this issue:\n"
+                            "1. Pre-download NLTK packages: python -c \"import nltk; nltk.download('punkt'); nltk.download('punkt_tab')\"\n"
+                            "2. Or set NLTK_DATA environment variable to point to existing NLTK data\n"
+                            "3. Or ensure network access for NLTK downloads\n"
+                            f"Original high-res error: {hi_res_error}\n"
+                            f"Fallback error: {fallback_error}"
+                        ) from hi_res_error
+                else:
+                    # Re-raise the original error if it's not NLTK-related
+                    raise hi_res_error
+
+        except Exception as e:
+            # Check for specific dependency errors
+            error_str = str(e).lower()
+            if "pdfinfo" in error_str or "poppler" in error_str:
+                raise RuntimeError(
+                    "PDF processing failed due to missing poppler dependency. "
+                    "Please install poppler-utils: 'sudo apt-get install poppler-utils' (Ubuntu/Debian) "
+                    "or 'brew install poppler' (macOS). "
+                    "For more details, see: https://pdf2image.readthedocs.io/en/latest/installation.html "
+                    f"Original error: {e}"
+                ) from e
+            elif "tesseract" in error_str:
+                raise RuntimeError(
+                    "PDF processing failed due to missing tesseract dependency. "
+                    "Please install tesseract: 'sudo apt-get install tesseract-ocr' (Ubuntu/Debian) "
+                    "or 'brew install tesseract' (macOS). "
+                    f"Original error: {e}"
+                ) from e
+            else:
+                # If we've already handled NLTK errors above, this is something else
+                raise RuntimeError(f"Failed to process PDF document: {e}") from e
 
     def get_image_path_list(self) -> list[ImagePath]:
         """Get the list of image paths."""

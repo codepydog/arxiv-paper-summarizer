@@ -237,5 +237,8 @@ $RECYCLE.BIN/
 # Pycharm
 .idea/
 
-# Paper storage
-paper*
+# Paper storage - ignore paper files but allow papers directory
+paper*.pdf
+paper*.txt
+paper*.md
+!papers/
