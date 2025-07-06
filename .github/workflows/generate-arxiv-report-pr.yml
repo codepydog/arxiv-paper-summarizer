@@ -285,7 +285,7 @@ jobs:
             --body-file pr_body.txt \
             --head "${{ steps.create_branch.outputs.branch_name }}" \
             --base "main" \
-            --label "arxiv-report,automated,review-required"; then
+            --label "paper-summary"; then
             echo "✅ Pull Request created successfully via GitHub CLI"
           else
             echo "⚠️ GitHub CLI PR creation failed, branch was created but no PR"
