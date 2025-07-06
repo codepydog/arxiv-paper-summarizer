@@ -79,7 +79,10 @@ class ArxivClient:
             with tempfile.TemporaryDirectory() as temp_dir:
                 pdf_path = paper.download_pdf(dirpath=temp_dir)
                 doc = cast(fitz.Document, fitz.open(pdf_path))
-                text = "".join([page.get_text() for page in doc])  # type: ignore
+                try:
+                    text = "".join([page.get_text() for page in doc])  # type: ignore
+                finally:
+                    doc.close()  # Ensure document is closed before temp dir cleanup
 
             papers.append(
                 Paper(
@@ -114,7 +117,10 @@ class ArxivClient:
                 with tempfile.TemporaryDirectory() as temp_dir:
                     pdf_path = paper.download_pdf(dirpath=temp_dir)
                     doc = cast(fitz.Document, fitz.open(pdf_path))
-                    text = "".join([page.get_text() for page in doc])  # type: ignore
+                    try:
+                        text = "".join([page.get_text() for page in doc])  # type: ignore
+                    finally:
+                        doc.close()  # Ensure document is closed before temp dir cleanup
                 papers.append(
                     Paper(
                         title=paper.title,

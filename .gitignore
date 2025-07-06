@@ -10,7 +10,6 @@
 # Icon must end with two \r
 Icon
 
-
 # Thumbnails
 ._*
 
@@ -242,3 +241,5 @@ paper*.pdf
 paper*.txt
 paper*.md
 !papers/
+
+.vscode

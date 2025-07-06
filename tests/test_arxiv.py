@@ -57,13 +57,19 @@ def test_fetch_papers_by_url():
 
     mock_paper.published = datetime(2024, 1, 15, 10, 30)
 
+    mock_doc = MagicMock()
+    mock_page = MagicMock()
+    mock_page.get_text.return_value = "Paper content"
+    mock_doc.__iter__ = lambda self: iter([mock_page])
+
     with patch.object(client, "search_by_url", return_value=[mock_paper]):
-        with patch("fitz.open", return_value=[MagicMock(get_text=lambda: "Paper content")]):
+        with patch("fitz.open", return_value=mock_doc):
             papers = client.fetch_papers_by_url(urls)
             assert len(papers) == 1
             assert papers[0].title == "Sample Paper"
             assert papers[0].authors == ["John Doe", "Jane Smith"]
             assert papers[0].published == "2024-01-15T10:30:00"
+            mock_doc.close.assert_called_once()
 
 
 def test_fetch_papers_with_references_by_url():
@@ -83,8 +89,13 @@ def test_fetch_papers_with_references_by_url():
     ref_paper.authors = []
     ref_paper.published = None
 
+    mock_doc = MagicMock()
+    mock_page = MagicMock()
+    mock_page.get_text.return_value = "Content with https://arxiv.org/abs/9876.54321"
+    mock_doc.__iter__ = lambda self: iter([mock_page])
+
     with patch.object(client, "search_by_url", side_effect=[[main_paper], [ref_paper]]):
-        with patch("fitz.open", return_value=[MagicMock(get_text=lambda: "Content with https://arxiv.org/abs/9876.54321")]):
+        with patch("fitz.open", return_value=mock_doc):
             papers = client.fetch_papers_with_references_by_url(urls)
             assert len(papers) == 1
             assert papers[0].references is not None
@@ -101,11 +112,17 @@ def test_fetch_papers_by_query():
     mock_paper.authors = []
     mock_paper.published = None
 
+    mock_doc = MagicMock()
+    mock_page = MagicMock()
+    mock_page.get_text.return_value = "Paper content"
+    mock_doc.__iter__ = lambda self: iter([mock_page])
+
     with patch.object(client, "search_by_query", return_value=[mock_paper]):
-        with patch("fitz.open", return_value=[MagicMock(get_text=lambda: "Paper content")]):
+        with patch("fitz.open", return_value=mock_doc):
             papers = client.fetch_papers_by_query(queries)
             assert len(papers) == 1
             assert papers[0].title == "Sample Query"
+            mock_doc.close.assert_called_once()
 
 
 def test_fetch_papers_with_references_by_query():
@@ -131,7 +148,12 @@ def test_fetch_papers_with_references_by_query():
             "fetch_papers_by_url",
             return_value=[Paper(title="Reference Paper", text="Content", url="https://arxiv.org/abs/9876.54321")],
         ):
-            with patch("fitz.open", return_value=[MagicMock(get_text=lambda: "Content with https://arxiv.org/abs/9876.54321")]):
+            mock_doc = MagicMock()
+            mock_page = MagicMock()
+            mock_page.get_text.return_value = "Content with https://arxiv.org/abs/9876.54321"
+            mock_doc.__iter__ = lambda self: iter([mock_page])
+
+            with patch("fitz.open", return_value=mock_doc):
                 papers = client.fetch_papers_with_references_by_query(queries)
                 assert len(papers) == 1
                 assert papers[0].references is not None
@@ -268,10 +290,62 @@ def test_fetch_papers_by_query_with_authors_and_published():
 
     mock_paper.published = datetime(2023, 12, 5, 14, 45)
 
+    mock_doc = MagicMock()
+    mock_page = MagicMock()
+    mock_page.get_text.return_value = "Paper content"
+    mock_doc.__iter__ = lambda self: iter([mock_page])
+
     with patch.object(client, "search_by_query", return_value=[mock_paper]):
-        with patch("fitz.open", return_value=[MagicMock(get_text=lambda: "Paper content")]):
+        with patch("fitz.open", return_value=mock_doc):
             papers = client.fetch_papers_by_query(queries)
             assert len(papers) == 1
             assert papers[0].title == "Sample Query"
             assert papers[0].authors == ["Charlie Brown", "Dana White"]
             assert papers[0].published == "2023-12-05T14:45:00"
+            mock_doc.close.assert_called_once()
+
+
+def test_pdf_documents_are_closed_after_processing():
+    """Test that PDF documents are properly closed after processing."""
+    client = ArxivClient()
+    urls = ["https://arxiv.org/abs/1234.56789"]
+
+    mock_paper = MagicMock()
+    mock_paper.title = "Test Paper"
+    mock_paper.entry_id = "https://arxiv.org/abs/1234.56789"
+    mock_paper.download_pdf.return_value = "/tmp/test.pdf"
+    mock_paper.authors = []
+    mock_paper.published = None
+
+    mock_doc = MagicMock()
+    mock_doc.get_text.return_value = "Test content"
+    mock_doc.__iter__ = lambda self: iter([mock_doc])
+
+    with patch.object(client, "search_by_url", return_value=[mock_paper]):
+        with patch("fitz.open", return_value=mock_doc) as mock_fitz_open:
+            client.fetch_papers_by_url(urls)
+            mock_fitz_open.assert_called_once_with("/tmp/test.pdf")
+            mock_doc.close.assert_called_once()
+
+
+def test_pdf_documents_are_closed_after_processing_by_query():
+    """Test that PDF documents are properly closed after processing by query."""
+    client = ArxivClient()
+    queries = ["Test Query"]
+
+    mock_paper = MagicMock()
+    mock_paper.title = "Test Query"
+    mock_paper.entry_id = "https://arxiv.org/abs/1234.56789"
+    mock_paper.download_pdf.return_value = "/tmp/test.pdf"
+    mock_paper.authors = []
+    mock_paper.published = None
+
+    mock_doc = MagicMock()
+    mock_doc.get_text.return_value = "Test content"
+    mock_doc.__iter__ = lambda self: iter([mock_doc])
+
+    with patch.object(client, "search_by_query", return_value=[mock_paper]):
+        with patch("fitz.open", return_value=mock_doc) as mock_fitz_open:
+            client.fetch_papers_by_query(queries)
+            mock_fitz_open.assert_called_once_with("/tmp/test.pdf")
+            mock_doc.close.assert_called_once()
